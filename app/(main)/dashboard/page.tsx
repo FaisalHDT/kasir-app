@@ -1,139 +1,233 @@
-import { auth } from "../../../lib/auth";
-import { redirect } from "next/navigation";
-import prisma from "../../../lib/prisma"; // Langsung akses prisma
-import SalesChart from "@/components/dashboard/SalesChart";
+"use client";
 
-// Komponen Kartu Statistik (tetap sama)
-function StatCard({ icon, title, value, description }: { icon: React.ReactNode, title: string, value: string, description: string }) {
+import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import * as XLSX from 'xlsx';
+import { exportTransactionsToExcel } from "@/app/actions"; // 1. Impor Server Action
+
+// Tipe data untuk laporan
+interface ProductSold {
+    name: string;
+    quantity: number;
+}
+interface EmployeeReport {
+    id: number;
+    name: string;
+    totalSales: number;
+    transactionCount: number;
+    totalCash: number;
+    totalQris: number;
+    productsSold: ProductSold[];
+}
+interface ReportSummary {
+    grandTotalSales: number;
+    grandTotalCash: number;
+    grandTotalQris: number;
+}
+
+const formatDate = (date: Date): string => date.toISOString().split('T')[0];
+
+// Komponen Modal Detail
+function DetailsModal({ isOpen, onClose, employee }: { isOpen: boolean, onClose: () => void, employee: EmployeeReport | null }) {
+    if (!isOpen || !employee) return null;
+
     return (
-        <div className="transform rounded-xl bg-white p-6 shadow-lg transition-all hover:scale-105 hover:shadow-xl">
-            <div className="flex items-start justify-between">
-                <div className="flex-grow">
-                    <p className="text-sm font-medium text-gray-500">{title}</p>
-                    <p className="mt-2 text-3xl font-bold text-gray-800">{value}</p>
-                    <p className="mt-1 text-xs text-gray-400">{description}</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+            <div className="w-full max-w-lg transform rounded-xl bg-white p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex items-start justify-between border-b pb-3 mb-4">
+                    <div>
+                        <h2 className="text-xl font-bold text-gray-800">Detail Produk Terjual</h2>
+                        <p className="text-sm text-gray-500">{employee.name}</p>
+                    </div>
+                    <button onClick={onClose} className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
                 </div>
-                <div className="rounded-full bg-green-100 p-3 text-green-600">
-                    {icon}
-                </div>
+                {employee.productsSold.length > 0 ? (
+                    <ul className="space-y-2 text-sm max-h-80 overflow-y-auto pr-2">
+                        {employee.productsSold.map((product, index) => (
+                            <li key={index} className="flex justify-between rounded-md bg-gray-50 px-4 py-2">
+                                <span className="text-gray-800">{product.name}</span>
+                                <span className="font-semibold text-gray-900">{product.quantity} unit</span>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p className="py-10 text-center text-sm text-gray-400">Tidak ada produk terjual pada periode ini.</p>
+                )}
             </div>
         </div>
     );
 }
 
-// Ikon untuk Kartu Statistik (tetap sama)
-const DollarIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8v1m0 6v1m0-1c-1.11 0-2.08.402-2.599 1M12 18c-1.11 0-2.08-.402-2.599-1M12 4a8 8 0 100 16 8 8 0 000-16z" /></svg>;
-const StarIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>;
-const UsersIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283-.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>;
-
-// Fungsi untuk mengambil data dashboard
-async function getDashboardData() {
-    try {
-        const salesAggregation = await prisma.sale.aggregate({ _sum: { total: true } });
-        const employeeCount = await prisma.user.count({ where: { role: 'pegawai' } });
-        const topProductData = await prisma.product.findFirst({
-            orderBy: { saleItems: { _count: "desc" } },
-            include: { _count: { select: { saleItems: true } } },
-        });
-        const salesByUser = await prisma.user.findMany({
-            where: { role: 'pegawai' },
-            include: {
-                _count: { select: { sales: true } },
-                sales: { select: { total: true } }
-            }
-        });
-
-        const salesPerEmployee = salesByUser.map(user => ({
-            name: user.name || 'Tanpa Nama',
-            totalSales: user.sales.reduce((acc, sale) => acc + sale.total, 0),
-            transactionCount: user._count.sales
-        })).sort((a, b) => b.totalSales - a.totalSales);
-
-        return {
-            totalSales: salesAggregation._sum.total || 0,
-            employeeCount,
-            topProduct: {
-                name: topProductData?.name || '-',
-                count: topProductData?._count.saleItems || 0,
-            },
-            salesPerEmployee,
-        };
-    } catch (error) {
-        console.error("Gagal mengambil data dashboard:", error);
-        return null;
-    }
+// Komponen Kartu Statistik
+function StatCard({ title, value }: { title: string, value: string }) {
+    return (
+        <div className="rounded-xl bg-white p-6 shadow-lg">
+            <p className="text-sm font-medium text-gray-500">{title}</p>
+            <p className="mt-2 text-3xl font-bold text-gray-800">{value}</p>
+        </div>
+    );
 }
 
+export default function DashboardPage() {
+    const { data: session } = useSession();
+    const router = useRouter();
 
-export default async function DashboardPage() {
-    // 1. Verifikasi sesi sekali di awal
-    const session = await auth();
-    if (!session || session.user.role !== 'admin') {
-        redirect('/login');
+    const [reportData, setReportData] = useState<EmployeeReport[]>([]);
+    const [summaryData, setSummaryData] = useState<ReportSummary | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [exportingId, setExportingId] = useState<number | null>(null);
+    const [startDate, setStartDate] = useState(formatDate(new Date()));
+    const [endDate, setEndDate] = useState(formatDate(new Date()));
+    const [selectedEmployee, setSelectedEmployee] = useState<EmployeeReport | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+
+    useEffect(() => {
+        if(session?.user.role === 'admin') {
+            const fetchReport = async () => {
+                setIsLoading(true);
+                try {
+                    const res = await fetch(`/api/dashboard?startDate=${startDate}&endDate=${endDate}`);
+                    if (!res.ok) throw new Error("Gagal memuat laporan");
+                    const data = await res.json();
+                    setReportData(data.employeeReport || []);
+                    setSummaryData(data.summary || null);
+                } catch (err) { 
+                    console.error(err); 
+                    setReportData([]); 
+                    setSummaryData(null); 
+                } 
+                finally { setIsLoading(false); }
+            };
+            fetchReport();
+        }
+    }, [session, startDate, endDate]);
+
+    if (session && session.user.role !== 'admin') {
+        router.push('/pos');
+        return null;
     }
     
-    // 2. Panggil fungsi untuk mengambil data langsung dari database
-    const data = await getDashboardData();
+    const handleViewDetails = (employee: EmployeeReport) => {
+        setSelectedEmployee(employee);
+        setIsModalOpen(true);
+    };
 
-    if (!data) {
-        return <div className="p-8 text-center text-red-500">Gagal memuat data dashboard.</div>
-    }
+    // 2. Perbarui fungsi handleExport untuk memanggil Server Action
+    const handleExport = async (employee: EmployeeReport) => {
+        setExportingId(employee.id);
+        try {
+            const result = await exportTransactionsToExcel(startDate, endDate, employee.id);
+            
+            if (result.error) throw new Error(result.error);
+            if (!result.data || result.data.length === 0) {
+                alert(`Tidak ada data transaksi untuk ${employee.name} pada periode ini.`);
+                return;
+            }
 
-    const { totalSales, employeeCount, topProduct, salesPerEmployee } = data;
+            const transactionDetails = result.data.map(tx => ({
+                "ID": tx.id, "Tanggal": tx.tanggal, "Waktu": tx.waktu,
+                "Item Terjual": tx.itemTerjual, "Metode Pembayaran": tx.metodePembayaran, "Total (Rp)": tx.total
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(transactionDetails);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, `Transaksi ${employee.name}`);
+
+            XLSX.utils.sheet_add_aoa(worksheet, [
+                [],
+                ["", "", "", "", "TOTAL PENJUALAN", employee.totalSales],
+                ["", "", "", "", "TOTAL TUNAI", employee.totalCash],
+                ["", "", "", "", "TOTAL QRIS", employee.totalQris],
+            ], { origin: -1 });
+
+            const columnWidths = [ {wch: 5}, {wch: 12}, {wch: 10}, {wch: 50}, {wch: 20}, {wch: 15} ];
+            worksheet["!cols"] = columnWidths;
+
+            XLSX.writeFile(workbook, `Rincian_${employee.name}_${startDate}_hingga_${endDate}.xlsx`);
+
+        } catch (err) {
+            console.error(err);
+            alert(err instanceof Error ? err.message : "Terjadi kesalahan saat ekspor");
+        } finally {
+            setExportingId(null);
+        }
+    };
 
     return (
-        <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
-            <div className="mx-auto max-w-7xl">
-                <h1 className="mb-8 text-3xl font-bold tracking-tight text-gray-900">Dashboard Analitik</h1>
-
-                {/* Grid Statistik Utama */}
-                <div className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                    <StatCard 
-                        icon={<DollarIcon/>}
-                        title="Total Pendapatan" 
-                        value={`Rp ${new Intl.NumberFormat('id-ID').format(totalSales)}`} 
-                        description="Dari seluruh penjualan"
-                    />
-                     <StatCard 
-                        icon={<UsersIcon/>}
-                        title="Jumlah Karyawan" 
-                        value={employeeCount.toString()}
-                        description="Pegawai aktif saat ini"
-                    />
-                    <StatCard 
-                        icon={<StarIcon/>}
-                        title="Produk Terlaris" 
-                        value={topProduct.name}
-                        description={`${topProduct.count} unit terjual`}
-                    />
-                </div>
-
-                {/* Analisis Karyawan */}
-                <div className="rounded-xl bg-white p-6 shadow-lg">
-                     <h2 className="mb-4 text-xl font-bold text-gray-800">Performa Penjualan Karyawan</h2>
-                     <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-                        <div className="lg:col-span-2">
-                             <SalesChart data={salesPerEmployee} />
+        <>
+            <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+                <div className="mx-auto max-w-7xl">
+                    <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center mb-8">
+                        <div>
+                            <h1 className="text-3xl font-bold tracking-tight text-gray-900">Laporan Penjualan</h1>
+                            <p className="mt-1 text-gray-500">Pilih rentang tanggal untuk melihat laporan.</p>
                         </div>
-                        <div className="lg:col-span-1">
-                            <ul className="h-full divide-y divide-gray-200">
-                                {salesPerEmployee.map((employee: any, index: number) => (
-                                    <li key={index} className="flex items-center justify-between py-3">
-                                        <div>
-                                            <p className="font-semibold text-gray-800">{employee.name}</p>
-                                            <p className="text-sm text-gray-500">{employee.transactionCount} transaksi</p>
-                                        </div>
-                                        <p className="font-bold text-green-600">
-                                            {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(employee.totalSales)}
-                                        </p>
-                                    </li>
-                                ))}
-                            </ul>
+                        <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center">
+                            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"/>
+                            <span className="text-gray-500 hidden sm:block">-</span>
+                            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"/>
                         </div>
-                     </div>
+                    </div>
+                
+                    {summaryData && !isLoading && (
+                        <div className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-3">
+                            <StatCard title="Total Penjualan" value={new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(summaryData.grandTotalSales)} />
+                            <StatCard title="Total Uang Tunai" value={new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(summaryData.grandTotalCash)} />
+                            <StatCard title="Total Uang QRIS" value={new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(summaryData.grandTotalQris)} />
+                        </div>
+                    )}
+                
+                    <div className="overflow-hidden rounded-xl bg-white shadow-lg">
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-6 py-4 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Peringkat</th>
+                                        <th className="px-6 py-4 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Nama Pegawai</th>
+                                        <th className="px-6 py-4 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Total Penjualan</th>
+                                        <th className="px-6 py-4 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Total Tunai</th>
+                                        <th className="px-6 py-4 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Total QRIS</th>
+                                        <th className="px-6 py-4 text-center text-xs font-medium uppercase tracking-wider text-gray-500">Jml Transaksi</th>
+                                        <th className="px-6 py-4 text-center text-xs font-medium uppercase tracking-wider text-gray-500">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200 bg-white">
+                                    {isLoading ? (
+                                        <tr><td colSpan={7} className="px-6 py-10 text-center text-gray-500">Memuat laporan...</td></tr>
+                                    ) : reportData.length === 0 ? (
+                                        <tr><td colSpan={7} className="px-6 py-10 text-center text-gray-500">Tidak ada data penjualan pada periode ini.</td></tr>
+                                    ) : (
+                                        reportData.map((employee, index) => (
+                                            <tr key={employee.id} className="hover:bg-gray-50">
+                                                <td className="px-6 py-4 whitespace-nowrap"><span className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${index === 0 ? 'bg-yellow-400 text-white' : 'bg-gray-100 text-gray-600'}`}>{index + 1}</span></td>
+                                                <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{employee.name}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap font-semibold text-green-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(employee.totalSales)}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-gray-800">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(employee.totalCash)}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-gray-800">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(employee.totalQris)}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-center font-bold text-gray-800">{employee.transactionCount}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium space-x-4">
+                                                    <button onClick={() => handleViewDetails(employee)} className="text-indigo-600 hover:text-indigo-900 font-semibold">Detail</button>
+                                                    <button onClick={() => handleExport(employee)} disabled={exportingId === employee.id} className="text-green-600 hover:text-green-900 font-semibold disabled:text-gray-400">
+                                                        {exportingId === employee.id ? 'Loading...' : 'Export'}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
+            
+            <DetailsModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} employee={selectedEmployee} />
+        </>
     );
 }
 

@@ -33,23 +33,24 @@ model Product {
 }
 
 model Sale {
-  id        Int        @id @default(autoincrement())
-  userId    Int
-  total     Float // Total akhir setelah diskon dan pajak
-  subtotal  Float // Total harga asli sebelum diskon/pajak
-  discount  Float      @default(0)
-  tax       Float      @default(0)
-  createdAt DateTime   @default(now())
-  user      User       @relation(fields: [userId], references: [id])
-  saleItems SaleItem[]
+  id            Int        @id @default(autoincrement())
+  userId        Int
+  subtotal      Float
+  total         Float
+  discount      Float
+  tax           Float
+  paymentMethod String     @default("Cash") // <-- TAMBAHKAN BARIS INI
+  createdAt     DateTime   @default(now())
+  user          User       @relation(fields: [userId], references: [id])
+  saleItems     SaleItem[]
 }
 
 model SaleItem {
   id        Int     @id @default(autoincrement())
   saleId    Int
   productId Int
-  quantity  Int
-  price     Float // Harga produk saat transaksi
-  sale      Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  quantity  Int // Pastikan namanya 'quantity'
+  price     Float
+  sale      Sale    @relation(fields: [saleId], references: [id])
   product   Product @relation(fields: [productId], references: [id])
 }

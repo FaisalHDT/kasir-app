@@ -1,47 +1,41 @@
 import { NextResponse } from 'next/server';
-import { auth } from "@/lib/auth"; // Impor helper 'auth' yang sudah kita buat
+import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 export async function POST(req: Request) {
   const session = await auth();
 
-  // 1. Cek Autentikasi dengan Type Safety
   if (!session?.user?.id) {
     return NextResponse.json({ message: 'Tidak terautentikasi' }, { status: 401 });
   }
 
   try {
     const body = await req.json();
-    
-    // 2. Validasi Data Input
-    const { total, tax, discount, saleItems } = body;
-    if (!saleItems || !Array.isArray(saleItems) || saleItems.length === 0 || typeof total !== 'number') {
+    const { total, tax, discount, saleItems, paymentMethod } = body; // Ambil paymentMethod dari body
+
+    if (!saleItems || !Array.isArray(saleItems) || saleItems.length === 0 || typeof total !== 'number' || !paymentMethod) {
         return NextResponse.json({ message: 'Data permintaan tidak valid' }, { status: 400 });
     }
     
     const userId = parseInt(session.user.id);
 
-    // 3. Buat Transaksi di Database
-    const subtotal = saleItems.reduce(
-      (acc: number, item: { qty: number; price: number }) => acc + item.qty * item.price,
-      0
-    );
+    // Calculate subtotal as sum of (quantity * price) for all sale items
+    const subtotal = saleItems.reduce((sum, item) => sum + (item.qty * item.price), 0);
+
     const newSale = await prisma.sale.create({
       data: {
         userId: userId,
-        total: total,
         subtotal: subtotal,
+        total: total,
         discount: discount || 0,
-        tax: tax,
+        tax: tax || 0,
+        paymentMethod: paymentMethod, // Simpan paymentMethod ke database
         saleItems: {
-          // Perbaikan ada di sini: Gunakan `connect` untuk menghubungkan ke produk yang sudah ada
           create: saleItems.map((item: { productId: number; qty: number; price: number }) => ({
             quantity: item.qty,
             price: item.price,
             product: {
-              connect: {
-                id: item.productId,
-              },
+              connect: { id: item.productId },
             },
           })),
         },
@@ -51,10 +45,9 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json(newSale, { status: 201 }); // Status 201 berarti "Created"
+    return NextResponse.json(newSale, { status: 201 });
   } catch (error) {
     console.error("Error saat membuat transaksi:", error);
     return NextResponse.json({ message: 'Terjadi kesalahan pada server' }, { status: 500 });
   }
 }
-
