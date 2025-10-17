@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,47 +7,51 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        Int      @id @default(autoincrement())
-  name      String
-  email     String   @unique
-  password  String
-  role      String   @default("pegawai") // "admin" atau "pegawai"
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  sales     Sale[]
-}
-
-model Product {
+model product {
   id        Int        @id @default(autoincrement())
   name      String
   price     Float
-  category  String // cth: "Kopi", "Jus", "Snack"
+  category  String
   imageUrl  String
   createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  saleItems SaleItem[]
+  updatedAt DateTime
+  saleitem  saleitem[]
 }
 
-model Sale {
-  id            Int        @id @default(autoincrement())
-  userId        Int
-  subtotal      Float
-  total         Float
-  discount      Float
-  tax           Float
-  paymentMethod String     @default("Cash") // <-- TAMBAHKAN BARIS INI
-  createdAt     DateTime   @default(now())
-  user          User       @relation(fields: [userId], references: [id])
-  saleItems     SaleItem[]
+model sale {
+  id        Int        @id @default(autoincrement())
+  userId    Int
+  total     Float
+  subtotal  Float
+  discount  Float      @default(0)
+  tax       Float      @default(0)
+  createdAt DateTime   @default(now())
+  user      user       @relation(fields: [userId], references: [id], map: "Sale_userId_fkey")
+  saleitem  saleitem[]
+
+  @@index([userId], map: "Sale_userId_fkey")
 }
 
-model SaleItem {
+model saleitem {
   id        Int     @id @default(autoincrement())
   saleId    Int
   productId Int
-  quantity  Int // Pastikan namanya 'quantity'
+  quantity  Int
   price     Float
-  sale      Sale    @relation(fields: [saleId], references: [id])
-  product   Product @relation(fields: [productId], references: [id])
+  product   product @relation(fields: [productId], references: [id], map: "SaleItem_productId_fkey")
+  sale      sale    @relation(fields: [saleId], references: [id], onDelete: Cascade, map: "SaleItem_saleId_fkey")
+
+  @@index([productId], map: "SaleItem_productId_fkey")
+  @@index([saleId], map: "SaleItem_saleId_fkey")
+}
+
+model user {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique(map: "User_email_key")
+  password  String
+  role      String   @default("pegawai")
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+  sale      sale[]
 }
