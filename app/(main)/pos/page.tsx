@@ -148,7 +148,7 @@ export default function PosPage() {
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {filteredProducts.map(product => (
             <div key={product.id} onClick={() => addToCart(product)} className="group cursor-pointer rounded-lg bg-white p-3 shadow-sm transition-all hover:shadow-lg hover:-translate-y-1">
-              <div className="overflow-hidden rounded-md"><Image src={product.imageUrl || `https://placehold.co/300x300?text=${product.name}`} alt={product.name} className="h-32 w-full object-cover transition-transform group-hover:scale-110" /></div>
+              <div className="overflow-hidden rounded-md"><Image src={product.imageUrl || `https://placehold.co/300x300/png?text=${product.name}`} alt={product.name}  className="h-32 w-full object-cover transition-transform group-hover:scale-110" width={300} height={300}/></div>
               <div className="mt-3"><p className="truncate text-sm font-semibold text-gray-800">{product.name}</p><p className="mt-1 text-base font-bold text-green-600">Rp {product.price.toLocaleString('id-ID')}</p></div>
             </div>
           ))}
@@ -264,7 +264,7 @@ export default function PosPage() {
                 <ul className="divide-y divide-gray-200">
                   {cart.map(item => (
                     <li key={item.id} className="flex items-center gap-4 py-3">
-                      <Image src={item.imageUrl} alt={item.name} className="h-14 w-14 rounded-lg object-cover" />
+                      <Image src={item.imageUrl} alt={item.name} width={300} height={300} className="h-14 w-14 rounded-lg object-cover" />
                       <div className="flex-grow">
                         <p className="text-sm font-semibold">{item.name}</p>
                         <p className="text-xs text-gray-500">Rp {item.price.toLocaleString('id-ID')}</p>
