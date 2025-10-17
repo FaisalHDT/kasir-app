@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 interface Product {
   id: number;
@@ -186,7 +187,7 @@ export default function ProductsPage() {
                     <tr key={product.id}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
-                          <div className="h-11 w-11 flex-shrink-0"><img className="h-11 w-11 rounded-full object-cover" src={product.imageUrl} alt={product.name} /></div>
+                          <div className="h-11 w-11 flex-shrink-0"><Image className="h-11 w-11 rounded-full object-cover" src={product.imageUrl} alt={product.name} /></div>
                           <div className="ml-4"><div className="text-sm font-medium text-gray-900">{product.name}</div></div>
                         </div>
                       </td>

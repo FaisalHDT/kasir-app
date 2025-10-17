@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 // Fungsi PUT untuk MENGEDIT produk berdasarkan ID
 export async function PUT(
   req: Request,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
   if (!session || session.user.role !== 'admin') {
@@ -13,7 +13,7 @@ export async function PUT(
   }
 
   try {
-    const id = parseInt(params.id);
+    const { id } = await context.params;
     const body = await req.json();
     const { name, price, category, imageUrl } = body;
 
@@ -22,7 +22,7 @@ export async function PUT(
     }
 
     const updatedProduct = await prisma.product.update({
-      where: { id },
+      where: { id: parseInt(id) },
       data: {
         name,
         price: parseFloat(price),
@@ -41,7 +41,7 @@ export async function PUT(
 // Fungsi DELETE untuk MENGHAPUS produk berdasarkan ID
 export async function DELETE(
   req: Request,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
   if (!session || session.user.role !== 'admin') {
@@ -49,10 +49,10 @@ export async function DELETE(
   }
 
   try {
-    const id = parseInt(params.id);
+    const { id } = await context.params;
 
     await prisma.product.delete({
-      where: { id },
+      where: { id: parseInt(id) },
     });
 
     return NextResponse.json({ message: "Produk berhasil dihapus" }, { status: 200 });
